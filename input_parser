@@ -1,0 +1,170 @@
+import os
+import json
+import urllib.request
+import openpyxl
+from docx import Document
+from pdfminer.high_level import extract_text as extract_pdf_text
+
+def read_text_from_pdf(file_path):
+    try:
+        text = extract_pdf_text(file_path)
+        # ОГРАНИЧЕНИЕ: Берем только первые 4000 символов (самая суть ТЗ)
+        # Это снизит нагрузку на ваш i7 в разы!
+        return text[:4000] if text else ""
+    except Exception as e:
+        print(f"[Ошибка чтения PDF]: {e}")
+        return ""
+
+def read_text_from_docx(file_path):
+    try:
+        doc = Document(file_path)
+        full_text = []
+        for para in doc.paragraphs:
+            full_text.append(para.text)
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    full_text.append(cell.text)
+        # Тоже ограничиваем объем текста на входе в ИИ
+        return "\n".join(full_text)[:4000]
+    except Exception as e:
+        print(f"[Ошибка чтения Word]: {e}")
+        return ""
+
+def read_text_from_xlsx(file_path):
+    try:
+        wb = openpyxl.load_workbook(file_path, data_only=True)
+        full_text = []
+        for sheet in wb.worksheets:
+            for row in sheet.iter_rows(values_only=True):
+                if row:
+                    row_text = " ".join([str(cell) for cell in row if cell is not None])
+                    full_text.append(row_text)
+        return "\n".join(full_text)[:4000]
+    except Exception as e:
+        print(f"[Ошибка чтения Excel]: {e}")
+        return ""
+
+def ask_qwen_to_parse(raw_text):
+    lm_url = "http://localhost:1234/v1/chat/completions"
+    
+    system_instruction = (
+        "Ты — автоматический инженерный парсер документов ПИР сотовой связи. "
+        "Извлеки параметры. Отвечай СТРОГО в формате чистого JSON, без markdown."
+    )
+    
+    prompt_text = f"""
+    Проанализируй текст исходных данных и заполни JSON. Если параметр не найден, пиши '-'.
+    
+    Формат ответа (JSON):
+    {{
+        "Operator": "MTS или T2 или VIMPELCOM",
+        "Site_ID": "Номер БС",
+        "Site_Name": "Наименование позиции",
+        "Address_Fact": "Фактический адрес площадки",
+        "Position_Type": "Roof или ODN или Mast",
+        "Cabinet_Type": "Тип климатического шкафа",
+        "EPU_Model": "Тип ЭПУ и номинал выпрямителей",
+        "Battery_Type": "Тип и емкость АКБ",
+        "Antenna_Model": "Модель секторных антенн",
+        "Antenna_Height": "Высота подвеса антенн АФУ",
+        "RRU_Model": "Модель радиомодулей RRU/RRH",
+        "RRL_Model": "Модель РРЛ оборудования и ответная часть",
+        "Power_kW": "Мощность по ТУ ВЭС",
+        "Metering_Type": "Тип счетчика электроэнергии",
+        "Breaker_Rating": "Номинал вводного автомата"
+    }}
+    
+    Текст для анализа:
+    {raw_text}
+    """
+    
+    payload = {
+        "messages": [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": prompt_text}
+        ],
+        "temperature": 0.0,
+        "max_tokens": 500
+    }
+    
+    try:
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(lm_url, data=data, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as response:
+            res = json.loads(response.read().decode("utf-8"))
+            return json.loads(res["choices"]["message"]["content"].strip())
+    except Exception as e:
+        print(f"[Ошибка ИИ-парсинга]: {e}")
+        return None
+
+def save_to_excel(data):
+    db_path = r"C:\Project\bs_constructor\database\main_tracker.xlsx"
+    wb = openpyxl.load_workbook(db_path)
+    ws = wb["PIR_Core"]
+    next_row = ws.max_row + 1
+    
+    ws.cell(row=next_row, column=1, value=next_row - 1)
+    ws.cell(row=next_row, column=2, value=data.get("Operator"))
+    ws.cell(row=next_row, column=3, value=data.get("Site_ID"))
+    ws.cell(row=next_row, column=4, value=data.get("Site_Name"))
+    ws.cell(row=next_row, column=5, value="-")
+    ws.cell(row=next_row, column=6, value=data.get("Address_Fact"))
+    ws.cell(row=next_row, column=7, value="-")
+    ws.cell(row=next_row, column=8, value="-")
+    ws.cell(row=next_row, column=9, value="1. Получение заказа ПИР")
+    ws.cell(row=next_row, column=10, value="-")
+    ws.cell(row=next_row, column=11, value="-")
+    ws.cell(row=next_row, column=12, value="Сбор исходных данных")
+    ws.cell(row=next_row, column=13, value="Not_Started")
+    ws.cell(row=next_row, column=14, value="Open")
+    
+    tech_summary = (
+        f"Тип: {data.get('Position_Type')} | Подвес: {data.get('Antenna_Height')} | "
+        f"КШ: {data.get('Cabinet_Type')} | ЭПУ: {data.get('EPU_Model')} | АКБ: {data.get('Battery_Type')} | "
+        f"АФУ: {data.get('Antenna_Model')} | Модули: {data.get('RRU_Model')} | "
+        f"РРЛ: {data.get('RRL_Model')} | ТУ ВЭС: {data.get('Power_kW')}кВт | "
+        f"УУ: {data.get('Metering_Type')} {data.get('Breaker_Rating')}"
+    )
+    ws.cell(row=next_row, column=15, value=tech_summary)
+    wb.save(db_path)
+    print(f"[Успешно]: Объект БС №{data.get('Site_ID')} занесен в Excel трекера.")
+
+def scan_buffer_folder():
+    buffer_dir = r"C:\Project\bs_constructor\_BUFFER"
+    if not os.path.exists(buffer_dir):
+        os.makedirs(buffer_dir)
+        return
+
+    files = os.listdir(buffer_dir)
+    if not files:
+        print("[Статус]: Папка _BUFFER пуста.")
+        return
+
+    print(f"[Система]: Найдено файлов: {len(files)}")
+    
+    for filename in files:
+        file_path = os.path.join(buffer_dir, filename)
+        raw_text = ""
+        ext = filename.lower().split('.')[-1]
+        
+        if ext == 'pdf':
+            print(f"[Импорт]: Вычитка PDF-документа: {filename}")
+            raw_text = read_text_from_pdf(file_path)
+        elif ext == 'docx':
+            print(f"[Импорт]: Вычитка документа Word: {filename}")
+            raw_text = read_text_from_docx(file_path)
+        elif ext == 'xlsx':
+            print(f"[Импорт]: Вычитка таблицы Excel: {filename}")
+            raw_text = read_text_from_xlsx(file_path)
+            
+        if raw_text:
+            parsed_data = ask_qwen_to_parse(raw_text)
+            if parsed_data and parsed_data.get("Site_ID") != "-":
+                save_to_excel(parsed_data)
+                os.remove(file_path)
+            else:
+                print(f"[Ошибка]: Не удалось распознать структуру.")
+
+if __name__ == "__main__":
+    scan_buffer_folder()
