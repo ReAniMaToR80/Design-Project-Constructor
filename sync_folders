@@ -1,0 +1,84 @@
+import os
+import openpyxl
+
+def sync_project_directories():
+    base_dir = r"C:\Project\bs_constructor"
+    db_path = os.path.join(base_dir, "database", "main_tracker.xlsx")
+    input_dir = os.path.join(base_dir, "input")
+    templates_dir = os.path.join(base_dir, "templates")
+    
+    print("="*60)
+    print("   МОДУЛЬ СИНХРОНИЗАЦИИ И НАРЕЗКИ РАБОЧИХ ПАПОК ОБЪЕКТОВ")
+    print("="*60)
+    
+    # 1. Проверяем наличие главного трекера Excel
+    if not os.path.exists(db_path):
+        print(f"[Критическая ошибка]: База данных не найдена по пути:\n{db_path}")
+        print("Сначала запустите скрипт init_tracker.py для создания файла трекера.")
+        return
+        
+    # 2. Разворачиваем базовую структуру шаблонов по операторам связи (если её еще нет)
+    # Это папки, где вы будете хранить свои эталонные чертежи dwg и шаблоны word
+    operator_folders = {
+        "01_T2": ["Drawings", "Documents"],
+        "02_MTS": ["Drawings", "Documents"],
+        "03_VIMPELCOM": ["Drawings", "Documents"]
+    }
+    
+    for op_folder, sub_folders in operator_folders.items():
+        for sub in sub_folders:
+            path = os.path.join(templates_dir, op_folder, sub)
+            if not os.path.exists(path):
+                os.makedirs(path)
+                print(f"[Система]: Создана папка эталонных шаблонов: {path}")
+
+    # 3. Читаем Excel и нарезаем рабочие папки под конкретные БС
+    wb = openpyxl.load_workbook(db_path)
+    ws = wb["PIR_Core"]
+    
+    # Считываем строки со 2-й (пропуская шапку таблицы)
+    created_count = 0
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or not row[2]: # Если строка пустая или нет Site_ID — пропускаем
+            continue
+            
+        operator = str(row[1]).strip().upper()
+        site_id = str(row[2]).strip()
+        site_name = str(row[3]).strip() if row[3] else "Unknown"
+        
+        # Защищаем имя папки от запрещенных символов Windows
+        safe_site_name = site_name.replace(" ", "_").replace("/", "-").replace("\\", "-")
+        
+        # Формируем имя корневой папки для исходников объекта
+        project_folder_name = f"BS_{site_id}_{operator}_{safe_site_name}"
+        project_path = os.path.join(input_dir, project_folder_name)
+        
+        # Жесткая структура подпапок внутри объекта под сбор исходных данных
+        sub_dirs = [
+            "01_Primary_Docs_Form3_ID",   # Сюда кидаем ТЗ, Форму 3, комплектовочные ведомости со склада
+            "02_TU_VES_and_Power",        # Сюда ТУ от Ленэнерго/Русмаркета и схемы АВР/ГРЩ
+            "03_PPO_Materials_and_Photos",# Сюда ваши фотографии с Note Cam и замеры дальномером
+            "04_Archive_Drawings_Donors"  # Сюда старые проекты 2018/2021 годов на БС-доноры
+        ]
+        
+        # Физически создаем директории на SSD
+        is_new_project = False
+        for sub in sub_dirs:
+            full_sub_path = os.path.join(project_path, sub)
+            if not os.path.exists(full_sub_path):
+                os.makedirs(full_sub_path)
+                is_new_project = True
+                
+        if is_new_project:
+            print(f"[Успешно]: Нарезана новая рабочая директория для БС №{site_id} ({operator})")
+            print(f"           └─ Путь: {project_path}")
+            created_count += 1
+        else:
+            print(f"[Статус]: Структура папок для БС №{site_id} ({operator}) уже существует, проверена и актуальна.")
+            
+    print("\n" + "="*60)
+    print(f"СИНХРОНИЗАЦИЯ ЗАВЕРШЕНА. Новых объектов развернуто: {created_count}")
+    print("="*60)
+
+if __name__ == "__main__":
+    sync_project_directories()
