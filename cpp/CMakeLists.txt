@@ -55,5 +55,10 @@ if(BSC_BUILD_TESTS)
     add_test(NAME cli_demo COMMAND bs_constructor --dwg)
     add_test(NAME cli_example_rooftop
         COMMAND bs_constructor ${CMAKE_CURRENT_SOURCE_DIR}/examples/act_t2_rooftop.txt --switch MEGAFON)
-    set_tests_properties(cli_demo cli_example_rooftop PROPERTIES TIMEOUT 30)
+    # Switching MTS -> Megafon on a pipe stand must be reported as a KM overload
+    # (exit code 2, so the check is done on the output).
+    add_test(NAME cli_switch_overload
+        COMMAND bs_constructor ${CMAKE_CURRENT_SOURCE_DIR}/examples/act_mts_ground.txt --switch MEGAFON)
+    set_tests_properties(cli_switch_overload PROPERTIES PASS_REGULAR_EXPRESSION "E_KM_OVERLOAD")
+    set_tests_properties(cli_demo cli_example_rooftop cli_switch_overload PROPERTIES TIMEOUT 30)
 endif()

@@ -1,6 +1,6 @@
 // main.cpp — console front end of the BS Constructor core.
 //
-//   bs_constructor [ACT_FILE|-] [--operator CODE] [--switch CODE] [--csv FILE] [--dwg]
+//   bs_constructor [ACT_FILE|-] [--operator CODE] [--switch CODE] [--csv FILE] [--dwg] [--help]
 //
 // Without ACT_FILE a built-in demo act is used; "-" reads the act from stdin.
 // Exit code: 0 — project is valid, 2 — project has conflicts, 1 — usage / IO error.
@@ -35,6 +35,7 @@ struct Options {
     std::optional<bsc::Operator> switchTo;
     std::string csvPath;
     bool dwg = false;
+    bool help = false;
 };
 
 void printUsage() {
@@ -65,6 +66,8 @@ std::optional<Options> parseOptions(const std::vector<std::string_view>& args) {
             options.csvPath = std::string(args[++i]);
         } else if (arg == "--dwg") {
             options.dwg = true;
+        } else if (arg == "--help" || arg == "-h") {
+            options.help = true;
         } else if (!arg.empty() && (arg.front() != '-' || arg == "-") && options.actPath.empty()) {
             options.actPath = std::string(arg);
         } else {
@@ -135,9 +138,9 @@ int main(int argc, char* argv[]) {
     try {
         const std::vector<std::string_view> args(argv + 1, argv + argc);
         const auto options = parseOptions(args);
-        if (!options) {
+        if (!options || options->help) {
             printUsage();
-            return 1;
+            return options ? 0 : 1;
         }
         return run(*options);
     } catch (const std::exception& error) {
