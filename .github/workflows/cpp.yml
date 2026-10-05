@@ -2,10 +2,10 @@ name: C++ core
 
 on:
   push:
-    branches: [main]
     paths: ['cpp/**', '.github/workflows/cpp.yml']
   pull_request:
     paths: ['cpp/**', '.github/workflows/cpp.yml']
+  workflow_dispatch:
 
 jobs:
   build-and-test:
