@@ -1,0 +1,48 @@
+name: C++ core
+
+on:
+  push:
+    branches: [main]
+    paths: ['cpp/**', '.github/workflows/cpp.yml']
+  pull_request:
+    paths: ['cpp/**', '.github/workflows/cpp.yml']
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }} / C++${{ matrix.std }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        std: [17, 20]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S cpp -B build -DBSC_CXX_STANDARD=${{ matrix.std }} -DBSC_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test
+        run: ctest --test-dir build --build-config Release --output-on-failure --timeout 60
+
+  sanitizers:
+    name: ubuntu / ASan + UBSan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Debug -DBSC_WARNINGS_AS_ERRORS=ON
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --timeout 60
